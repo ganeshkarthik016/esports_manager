@@ -11,7 +11,7 @@
 </head>
 <body>
     <header>
-        <div class="logo">Pro<span>Gamer</span></div>
+        <div class="logo"><a href="index.php">Pro<span>Gamer</span></a></div>
         <nav>
             <ul>
                 <li><a href="index.php">Home</a></li>

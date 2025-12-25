@@ -1,7 +1,7 @@
 <?php 
 include __DIR__ . '/includes/db_connect.php'; 
 
-// 1. Security Check
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 if (!isset($_SESSION['organizer_id'])) {
     header("Location: org_login.php");
     exit();
@@ -10,214 +10,177 @@ if (!isset($_SESSION['organizer_id'])) {
 $tourney_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 $msg = "";
 
-// 2. LOGIC: Create a New Match
+// 1. FETCH TOURNAMENT & GAME RULES
+$tourney_sql = "SELECT T.*, G.game_name, G.min_teams_per_match 
+                FROM Tournament T 
+                JOIN game G ON T.game_id = G.game_id 
+                WHERE T.tournament_id = $tourney_id";
+$tourney = $conn->query($tourney_sql)->fetch_assoc();
+if(!$tourney) die("Tournament not found");
+
+// 2. LOGIC: Disqualify Team (Existing)
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['disqualify_team'])) {
+    $target_team_id = intval($_POST['target_team_id']);
+    $conn->begin_transaction();
+    try {
+        $conn->query("DELETE FROM Match_plays WHERE team_id = $target_team_id");
+        $conn->query("DELETE FROM Participates WHERE team_id = $target_team_id AND tournament_id = $tourney_id");
+        $conn->query("DELETE FROM Team_Members WHERE team_id = $target_team_id");
+        $conn->commit();
+        $msg = "<div style='background: #ff4757; color: white; padding: 10px; border-radius: 5px; margin-bottom: 20px; text-align: center;'>🚨 Team Disqualified.</div>";
+    } catch (Exception $e) { $conn->rollback(); }
+}
+
+// 3. LOGIC: Create Match with MIN TEAMS Constraint
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['create_match'])) {
     $m_date = $_POST['match_date'];
     $m_time = $_POST['match_time'];
-    $selected_teams = $_POST['participating_teams'] ?? []; // Array of team IDs
+    $selected_teams = $_POST['participating_teams'] ?? []; 
+    $num_selected = count($selected_teams);
     
-    // Validate teams selected
-    if (empty($selected_teams)) {
-        $msg = "<p style='color: #ff4757; text-align:center;'>Error: Please select at least one team for the match.</p>";
-    } else {
-        // A. Insert Match into Matches table
+    $match_ts = strtotime($m_date . " " . $m_time);
+    $now = time();
+
+    // VALIDATION: Check against min_teams_per_match
+    if ($num_selected < $tourney['min_teams_per_match']) {
+        $msg = "<div style='background: #ffa502; color: #000; padding: 10px; border-radius: 5px; margin-bottom: 20px; text-align: center; font-weight: bold;'>
+                ⚠️ Error: {$tourney['game_name']} requires at least {$tourney['min_teams_per_match']} teams per match! (You selected $num_selected)
+                </div>";
+    } 
+    elseif ($match_ts < $now) {
+        $msg = "<div style='background: #ff4757; color: white; padding: 10px; border-radius: 5px; margin-bottom: 20px; text-align: center;'>❌ Error: Match must be in the future!</div>";
+    }
+    else {
+        // SQL INSERT
         $stmt = $conn->prepare("INSERT INTO Matches (tournament_id, match_date, match_time, status) VALUES (?, ?, ?, 'Scheduled')");
         $stmt->bind_param("iss", $tourney_id, $m_date, $m_time);
         
         if($stmt->execute()) {
-            $new_match_id = $conn->insert_id;
-            $insert_count = 0;
-            
-            // B. Link selected teams to the Match (Insert into Match_plays)
-            foreach($selected_teams as $team_id) {
-                $team_id = intval($team_id);
-                $stmt_team = $conn->prepare("INSERT INTO Match_plays (match_id, team_id, match_score) VALUES (?, ?, 0)");
-                $stmt_team->bind_param("ii", $new_match_id, $team_id);
-                if ($stmt_team->execute()) {
-                    $insert_count++;
-                }
+            $new_id = $conn->insert_id;
+            foreach($selected_teams as $tid) {
+                $stmt_mp = $conn->prepare("INSERT INTO Match_plays (match_id, team_id, match_score) VALUES (?, ?, 0)");
+                $stmt_mp->bind_param("ii", $new_id, $tid);
+                $stmt_mp->execute();
             }
-            
-            $msg = "<p style='color: #2ed573; text-align:center;'>Match Scheduled Successfully with $insert_count teams!</p>";
-            
-        } else {
-            $msg = "<p style='color: #ff4757; text-align:center;'>Database Error: " . $conn->error . "</p>";
+            $msg = "<div style='background: #2ed573; color: #1a1a24; padding: 10px; border-radius: 5px; margin-bottom: 20px; text-align: center;'>✅ Match Scheduled!</div>";
         }
     }
 }
 
-// 3. LOGIC: Update Scores & Status (remains the same)
+// 4. LOGIC: Update Scores (Existing)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_scores'])) {
-    $match_id = $_POST['match_id'];
+    $mid = $_POST['match_id'];
     $status = $_POST['match_status'];
-    $scores = $_POST['scores']; // Array [team_id => score]
-
-    // A. Update Match Status
-    $stmt = $conn->prepare("UPDATE Matches SET status = ? WHERE match_id = ?");
-    $stmt->bind_param("si", $status, $match_id);
-    $stmt->execute();
-
-    // B. Update Scores for each team
-    foreach ($scores as $team_id => $score) {
-        $score = intval($score);
-        // Using ON DUPLICATE KEY UPDATE to handle both insert and update
-        $sql_score = "INSERT INTO Match_plays (match_id, team_id, match_score) VALUES ($match_id, $team_id, $score)
-                      ON DUPLICATE KEY UPDATE match_score = $score";
-        $conn->query($sql_score);
+    $scores = $_POST['scores']; 
+    $conn->query("UPDATE Matches SET status = '$status' WHERE match_id = $mid");
+    foreach ($scores as $tid => $s) {
+        $s = intval($s);
+        $conn->query("INSERT INTO Match_plays (match_id, team_id, match_score) VALUES ($mid, $tid, $s) ON DUPLICATE KEY UPDATE match_score = $s");
     }
-
-    // C. Recalculate Leaderboard
-    $sql_calc = "UPDATE Participates P 
-                 SET score = (
-                    SELECT COALESCE(SUM(MP.match_score), 0)
-                    FROM Match_plays MP
-                    JOIN Matches M ON MP.match_id = M.match_id
-                    WHERE MP.team_id = P.team_id AND M.tournament_id = $tourney_id
-                 )
-                 WHERE P.tournament_id = $tourney_id";
-    $conn->query($sql_calc);
-
-    $msg = "<p style='color: #2ed573; text-align:center;'>Scores Updated & Leaderboard Recalculated!</p>";
+    $conn->query("UPDATE Participates P SET score = (SELECT COALESCE(SUM(MP.match_score), 0) FROM Match_plays MP JOIN Matches M ON MP.match_id = M.match_id WHERE MP.team_id = P.team_id AND M.tournament_id = $tourney_id) WHERE P.tournament_id = $tourney_id");
 }
 
-// 4. DATA: Get Tournament, Teams, and Matches
-$tourney = $conn->query("SELECT * FROM Tournament WHERE tournament_id = $tourney_id")->fetch_assoc();
-if(!$tourney) die("Tournament not found");
-
-// Get Approved Teams (These are the ones available to be played)
+// 5. FETCH DATA
 $teams = [];
-$res_teams = $conn->query("SELECT Team.team_id, Team.team_name FROM Participates JOIN Team ON Participates.team_id = Team.team_id WHERE tournament_id = $tourney_id AND registration_status = 'Approved'");
-while($r = $res_teams->fetch_assoc()) $teams[] = $r;
-
-// Get Matches
+$res_t = $conn->query("SELECT Team.team_id, Team.team_name FROM Participates JOIN Team ON Participates.team_id = Team.team_id WHERE tournament_id = $tourney_id AND registration_status = 'Approved'");
+while($r = $res_t->fetch_assoc()) $teams[] = $r;
 $matches = [];
-$res_matches = $conn->query("SELECT * FROM Matches WHERE tournament_id = $tourney_id ORDER BY match_id DESC");
-while($r = $res_matches->fetch_assoc()) $matches[] = $r;
-
-// Function to fetch current match participants (for display purposes)
-function get_participants($conn, $match_id) {
-    $sql = "SELECT T.team_name FROM Match_plays MP JOIN Team T ON MP.team_id = T.team_id WHERE MP.match_id = $match_id";
-    $result = $conn->query($sql);
-    $names = [];
-    while($row = $result->fetch_assoc()) {
-        $names[] = $row['team_name'];
-    }
-    return $names;
-}
+$res_m = $conn->query("SELECT * FROM Matches WHERE tournament_id = $tourney_id ORDER BY match_id DESC");
+while($r = $res_m->fetch_assoc()) $matches[] = $r;
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Manage Matches</title>
-    <link rel="stylesheet" href="css/style.css">
+    <title>Manage Matches | ORGPANEL</title>
     <style>
-        .match-card { background: #1a1a24; padding: 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #333; }
-        .score-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 15px; }
-        .team-input { background: #0f0f13; padding: 10px; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #444; }
-        .team-input input { width: 60px; padding: 5px; background: #000; color: #2ed573; border: 1px solid #333; text-align: center; font-weight: bold; }
-        .team-select { height: 150px; background: #0f0f13; border: 1px solid #444; color: #fff; padding: 5px; }
+        body { background: #0f0f13; color: #fff; font-family: 'Segoe UI', sans-serif; margin: 0; }
+        .banner { background: linear-gradient(45deg, #1a1a24, #000); padding: 25px; border-bottom: 2px solid #e056fd; }
+        .container { display: grid; grid-template-columns: 320px 1fr; gap: 30px; max-width: 1400px; margin: 30px auto; padding: 0 20px; }
+        .card { background: #1a1a24; padding: 20px; border-radius: 12px; border: 1px solid #333; margin-bottom: 20px; }
+        .team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 15px; }
+        .team-label { background: #252530; padding: 10px; border-radius: 6px; border: 1px solid #444; display: flex; align-items: center; cursor: pointer; }
+        .team-label input { margin-right: 10px; accent-color: #2ed573; }
+        .btn { padding: 10px 20px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; color: #fff; text-decoration: none; }
     </style>
 </head>
-<body style="background-color: #0f0f13; color: #fff;">
+<body>
 
-<div style="max-width: 1000px; margin: 40px auto; padding: 20px;">
-    
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
-        <h1 style="color: #e056fd;"><?php echo htmlspecialchars($tourney['tournament_name']); ?> <span style="color: #fff; font-size: 1.2rem;">Manager</span></h1>
-        <a href="org_dashboard.php" class="btn" style="background: #333;">← Back to Dashboard</a>
-    </div>
-
-    <?php echo $msg; ?>
-
-    <!-- 1. CREATE MATCH SECTION -->
-    <div style="background: #1a1a24; padding: 20px; border-radius: 10px; border-left: 5px solid #2ed573; margin-bottom: 40px;">
-        <h3>📅 Schedule New Match</h3>
-        <form method="POST" action="">
-            <div style="display: flex; gap: 15px; margin-top: 15px; align-items: stretch;">
-                
-                <!-- Date/Time Fields -->
-                <div style="flex: 1;">
-                    <label style="display:block; margin-bottom:5px;">Date</label>
-                    <input type="date" name="match_date" required style="width:100%; padding: 8px; background: #000; border: 1px solid #444; color: #fff;">
-                </div>
-                <div style="flex: 1;">
-                    <label style="display:block; margin-bottom:5px;">Time</label>
-                    <input type="time" name="match_time" required style="width:100%; padding: 8px; background: #000; border: 1px solid #444; color: #fff;">
-                </div>
-                
-                <!-- Team Selection Field -->
-                <div style="flex: 2;">
-                    <label style="display:block; margin-bottom:5px;">Select Teams (Hold CTRL/CMD to select multiple)</label>
-                    <select multiple name="participating_teams[]" required class="team-select" style="width: 100%;">
-                        <?php foreach($teams as $team): ?>
-                            <option value="<?php echo $team['team_id']; ?>"><?php echo htmlspecialchars($team['team_name']); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                
-            </div>
-            <button type="submit" name="create_match" class="btn" style="margin-top: 15px; width: 100%;">Add Match</button>
-        </form>
-        
-        <?php if(empty($teams)): ?>
-            <p style="color: #ff4757; margin-top: 15px;">Note: No teams have been approved for this tournament yet!</p>
-        <?php endif; ?>
-    </div>
-
-    <!-- 2. EXISTING MATCHES LIST -->
-    <h2 style="border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 20px;">Match List & Scores</h2>
-    
-    <?php if(empty($matches)): ?>
-        <p style="color: #666;">No matches scheduled yet.</p>
-    <?php endif; ?>
-
-    <?php foreach($matches as $match): ?>
-        <div class="match-card">
-            <form method="POST" action="">
-                <input type="hidden" name="match_id" value="<?php echo $match['match_id']; ?>">
-                
-                <!-- Match Header Controls -->
-                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 15px;">
-                    <div>
-                        <h3 style="margin: 0;">Match #<?php echo $match['match_id']; ?></h3>
-                        <small style="color:#aaa;">Participants: <?php echo implode(', ', get_participants($conn, $match['match_id'])); ?></small>
-                    </div>
-                    
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <select name="match_status" style="padding: 5px; background: #000; color: #fff; border: 1px solid #444;">
-                            <option value="Scheduled" <?php if($match['status']=='Scheduled') echo 'selected'; ?>>Scheduled</option>
-                            <option value="Live" <?php if($match['status']=='Live') echo 'selected'; ?>>🔴 Live</option>
-                            <option value="Completed" <?php if($match['status']=='Completed') echo 'selected'; ?>>✅ Completed</option>
-                        </select>
-                        <button type="submit" name="update_scores" class="btn" style="background: #e056fd; font-size: 0.8rem;">Save Changes</button>
-                    </div>
-                </div>
-
-                <!-- Teams Score Grid -->
-                <div class="score-grid">
-                    <?php 
-                    // Fetch only teams participating in THIS specific match (from Match_plays)
-                    $match_participants = $conn->query("SELECT MP.team_id, T.team_name, MP.match_score 
-                                                        FROM Match_plays MP 
-                                                        JOIN Team T ON MP.team_id = T.team_id 
-                                                        WHERE MP.match_id = {$match['match_id']}");
-                    while($team_data = $match_participants->fetch_assoc()):
-                    ?>
-                        <div class="team-input">
-                            <span style="font-size: 0.9rem;"><?php echo htmlspecialchars($team_data['team_name']); ?></span>
-                            <!-- Input name links team_id to the score: scores[101] = 15 -->
-                            <input type="number" name="scores[<?php echo $team_data['team_id']; ?>]" value="<?php echo $team_data['match_score']; ?>" min="0">
-                        </div>
-                    <?php endwhile; ?>
-                </div>
-
-            </form>
+<div class="banner">
+    <div style="max-width:1400px; margin:0 auto; display:flex; justify-content:space-between; align-items:center;">
+        <div>
+            <h1 style="color:#e056fd; margin:0;"><?php echo htmlspecialchars($tourney['tournament_name']); ?></h1>
+            <p style="color:#888; margin:5px 0 0 0;">Rule: Min <?php echo $tourney['min_teams_per_match']; ?> teams for <?php echo $tourney['game_name']; ?></p>
         </div>
-    <?php endforeach; ?>
-
+        <a href="org_dashboard.php" class="btn" style="background:#333;">&larr; Dashboard</a>
+    </div>
 </div>
 
+<div class="container">
+    <div class="card">
+        <h3 style="color:#ff4757; border-bottom:1px solid #333; padding-bottom:10px;">Active Teams</h3>
+        <?php foreach($teams as $t): ?>
+            <div style="display:flex; justify-content:space-between; margin-bottom:10px; background:#0f0f13; padding:10px; border-radius:6px;">
+                <span><?php echo htmlspecialchars($t['team_name']); ?></span>
+                <form method="POST" onsubmit="return confirm('Disqualify?');">
+                    <input type="hidden" name="target_team_id" value="<?php echo $t['team_id']; ?>">
+                    <button type="submit" name="disqualify_team" style="background:none; border:none; color:#ff4757; cursor:pointer;">🗑️</button>
+                </form>
+            </div>
+        <?php endforeach; ?>
+    </div>
+
+    <div>
+        <?php echo $msg; ?>
+        <div class="card" style="border-left: 5px solid #2ed573;">
+            <h3>Schedule New Match</h3>
+            <form method="POST">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+                    <input type="date" name="match_date" min="<?php echo date('Y-m-d'); ?>" required style="background:#000; color:#fff; padding:10px; border:1px solid #444;">
+                    <input type="time" name="match_time" required style="background:#000; color:#fff; padding:10px; border:1px solid #444;">
+                </div>
+                <div class="team-grid">
+                    <?php foreach($teams as $t): ?>
+                        <label class="team-label">
+                            <input type="checkbox" name="participating_teams[]" value="<?php echo $t['team_id']; ?>">
+                            <?php echo htmlspecialchars($t['team_name']); ?>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
+                <button type="submit" name="create_match" class="btn" style="background:#2ed573; color:#1a1a24; width:100%; margin-top:20px;">Launch Match</button>
+            </form>
+        </div>
+
+        <?php foreach($matches as $m): ?>
+            <div class="card">
+                <form method="POST">
+                    <input type="hidden" name="match_id" value="<?php echo $m['match_id']; ?>">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:15px; border-bottom:1px solid #333; padding-bottom:10px;">
+                        <span>Match #<?php echo $m['match_id']; ?> (<?php echo $m['match_date']; ?>)</span>
+                        <div style="display:flex; gap:10px;">
+                            <select name="match_status" style="background:#000; color:#fff;">
+                                <option value="Scheduled" <?php if($m['status']=='Scheduled') echo 'selected'; ?>>Scheduled</option>
+                                <option value="Live" <?php if($m['status']=='Live') echo 'selected'; ?>>Live</option>
+                                <option value="Completed" <?php if($m['status']=='Completed') echo 'selected'; ?>>Completed</option>
+                            </select>
+                            <button type="submit" name="update_scores" class="btn" style="background:#e056fd; padding:5px 10px;">Save</button>
+                        </div>
+                    </div>
+                    <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:10px;">
+                        <?php 
+                        $res_p = $conn->query("SELECT MP.*, T.team_name FROM Match_plays MP JOIN Team T ON MP.team_id = T.team_id WHERE match_id = {$m['match_id']}");
+                        while($p = $res_p->fetch_assoc()): ?>
+                            <div style="background:#0f0f13; padding:10px; border-radius:6px; display:flex; justify-content:space-between;">
+                                <span><?php echo htmlspecialchars($p['team_name']); ?></span>
+                                <input type="number" name="scores[<?php echo $p['team_id']; ?>]" value="<?php echo $p['match_score']; ?>" style="width:50px; background:#1a1a24; color:#2ed573; border:none; text-align:center;">
+                            </div>
+                        <?php endwhile; ?>
+                    </div>
+                </form>
+            </div>
+        <?php endforeach; ?>
+    </div>
+</div>
 </body>
 </html>

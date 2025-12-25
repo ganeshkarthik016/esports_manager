@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Dec 25, 2025 at 02:39 PM
+-- Generation Time: Dec 25, 2025 at 04:07 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -31,17 +31,19 @@ CREATE TABLE `game` (
   `game_id` int(11) NOT NULL,
   `game_name` varchar(100) NOT NULL,
   `platform` varchar(50) DEFAULT NULL,
-  `max_team_size` int(11) DEFAULT 5
+  `max_team_size` int(11) DEFAULT 5,
+  `min_age` int(11) DEFAULT 0,
+  `min_teams_per_match` int(11) DEFAULT 2
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
 --
 -- Dumping data for table `game`
 --
 
-INSERT INTO `game` (`game_id`, `game_name`, `platform`, `max_team_size`) VALUES
-(1, 'Valorant', 'PC', 5),
-(2, 'BGMI', 'Mobile', 4),
-(3, 'Counter-Strike 2', 'PC', 5);
+INSERT INTO `game` (`game_id`, `game_name`, `platform`, `max_team_size`, `min_age`, `min_teams_per_match`) VALUES
+(1, 'Valorant', 'PC', 5, 16, 2),
+(2, 'BGMI', 'Mobile', 4, 12, 4),
+(3, 'Counter-Strike 2', 'PC', 5, 18, 2);
 
 -- --------------------------------------------------------
 
@@ -155,8 +157,8 @@ INSERT INTO `participates` (`tournament_id`, `team_id`, `registration_status`, `
 (5, 24, 'Approved', 130),
 (5, 25, 'Approved', 50),
 (5, 26, 'Approved', 90),
-(6, 27, 'Approved', 0),
-(6, 28, 'Approved', 0);
+(6, 28, 'Approved', 0),
+(9, 29, 'Approved', 0);
 
 -- --------------------------------------------------------
 
@@ -189,7 +191,8 @@ INSERT INTO `player` (`player_id`, `gamer_tag`, `player_name`, `email`, `passwor
 (27, 'rohith_11', 'rohith', 'rohith@gmail.com', 'rk@123', 'India', 19, ''),
 (28, 'begam', 'maroof', 'maroof@gmail.com', '12345', 'India', 20, '9550534021'),
 (30, 'trojan', 'pankaj', 'pkj@kdjkdjj', 'wer', '', 0, ''),
-(31, 'BGC', 'B. GURU CHARAN', 'GC@AS', '1234556', 'India', 18, '9704203739');
+(31, 'BGC', 'B. GURU CHARAN', 'GC@AS', '1234556', 'India', 18, '9704203739'),
+(32, 'jiraya', 'jiraya', 'gk@gmail.com', '$2y$10$v4jkBiDcuz8WA', 'India', 20, '');
 
 -- --------------------------------------------------------
 
@@ -217,7 +220,8 @@ INSERT INTO `team` (`team_id`, `team_name`, `team_captain_id`, `creation_date`) 
 (25, 'lets go', 27, '2025-12-01'),
 (26, 'clash', 28, '2025-12-01'),
 (27, 'mingers', 1, '2025-12-01'),
-(28, 'pkj', 28, '2025-12-01');
+(28, 'pkj', 28, '2025-12-01'),
+(29, 'gg', 1, '2025-12-25');
 
 -- --------------------------------------------------------
 
@@ -253,10 +257,10 @@ INSERT INTO `team_members` (`team_id`, `player_id`, `join_date`) VALUES
 (26, 2, '2025-12-01'),
 (26, 26, '2025-12-01'),
 (26, 28, '2025-12-01'),
-(27, 1, '2025-12-01'),
-(27, 26, '2025-12-01'),
-(27, 27, '2025-12-01'),
-(28, 28, '2025-12-01');
+(28, 28, '2025-12-01'),
+(29, 1, '2025-12-25'),
+(29, 2, '2025-12-25'),
+(29, 26, '2025-12-25');
 
 -- --------------------------------------------------------
 
@@ -283,8 +287,8 @@ INSERT INTO `tournament` (`tournament_id`, `tournament_name`, `game_id`, `organi
 (2, 'Valorant Champions', 1, 2, '2024-05-01 10:00:00', '2024-05-20 10:00:00', 100000.00),
 (5, 'CS', 3, 2, '2025-11-29 02:33:00', '2025-12-25 02:33:00', 50000.00),
 (6, 'PUBG all star', 2, 2, '2025-12-04 11:05:00', '2025-12-31 11:05:00', 100000.00),
-(7, 'jjkhjh', 2, 2, '2025-10-01 12:02:00', '2025-12-01 12:02:00', 56777778.00),
-(8, 'BGC', 2, 2, '2025-12-08 20:48:00', '2025-12-20 20:48:00', 1000000.00);
+(8, 'BGC', 2, 2, '2025-12-08 20:48:00', '2025-12-20 20:48:00', 1000000.00),
+(9, 'bgmi', 2, 2, '2025-12-30 19:48:00', '2026-01-10 19:48:00', 100000.00);
 
 --
 -- Indexes for dumped tables
@@ -380,19 +384,19 @@ ALTER TABLE `organizer`
 -- AUTO_INCREMENT for table `player`
 --
 ALTER TABLE `player`
-  MODIFY `player_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=32;
+  MODIFY `player_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=33;
 
 --
 -- AUTO_INCREMENT for table `team`
 --
 ALTER TABLE `team`
-  MODIFY `team_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=29;
+  MODIFY `team_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=30;
 
 --
 -- AUTO_INCREMENT for table `tournament`
 --
 ALTER TABLE `tournament`
-  MODIFY `tournament_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
+  MODIFY `tournament_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
 
 --
 -- Constraints for dumped tables
