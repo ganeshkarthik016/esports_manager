@@ -32,7 +32,7 @@ A web application built using HTML, CSS, PHP, and MySQL.
 ![Organizer Dashboard](screenshots/org_dashboard.png)
 
 ### Create Tournament
-![Tournaments](screenshots/tournament.png)
+![Tournaments](screenshots/tournaments.png)
 
 ### Tournament View
 ![Tournament View](screenshots/tournament_view.png)
