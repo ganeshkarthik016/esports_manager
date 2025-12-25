@@ -36,3 +36,8 @@ A web application built using HTML, CSS, PHP, and MySQL.
 
 ### Tournament View
 ![Tournament View](screenshots/tournament_view.png)
+
+## Demo
+This project is intended to be run locally using XAMPP/WAMP.
+Screenshots of the working application are provided above.
+
