@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Dec 25, 2025 at 04:07 PM
+-- Generation Time: Dec 25, 2025 at 07:02 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -56,6 +56,7 @@ CREATE TABLE `matches` (
   `tournament_id` int(11) DEFAULT NULL,
   `match_date` date DEFAULT NULL,
   `match_time` time DEFAULT NULL,
+  `end_time` time DEFAULT NULL,
   `status` enum('Scheduled','Live','Completed') DEFAULT 'Scheduled'
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
@@ -63,15 +64,11 @@ CREATE TABLE `matches` (
 -- Dumping data for table `matches`
 --
 
-INSERT INTO `matches` (`match_id`, `tournament_id`, `match_date`, `match_time`, `status`) VALUES
-(1, 1, '2023-11-05', '14:00:00', 'Completed'),
-(2, 1, '2023-11-06', '16:00:00', 'Completed'),
-(3, 5, '2024-12-22', '15:00:00', 'Completed'),
-(4, 1, '2025-12-12', '01:00:00', 'Scheduled'),
-(5, 1, '2025-12-16', '01:00:00', 'Scheduled'),
-(6, 2, '2026-12-20', '10:00:00', 'Completed'),
-(7, 5, '2028-12-16', '01:00:00', 'Completed'),
-(8, 5, '2025-12-24', '01:09:00', 'Completed');
+INSERT INTO `matches` (`match_id`, `tournament_id`, `match_date`, `match_time`, `end_time`, `status`) VALUES
+(101, 1, '2025-11-05', '14:00:00', '16:00:00', 'Completed'),
+(102, 1, '2025-11-06', '16:30:00', '18:30:00', 'Completed'),
+(103, 2, '2025-12-25', '22:00:00', '24:00:00', 'Scheduled'),
+(104, 2, '2025-12-28', '19:00:00', '21:00:00', 'Scheduled');
 
 -- --------------------------------------------------------
 
@@ -90,23 +87,31 @@ CREATE TABLE `match_plays` (
 --
 
 INSERT INTO `match_plays` (`match_id`, `team_id`, `match_score`) VALUES
-(1, 1, 15),
-(1, 3, 10),
-(2, 1, 15),
-(2, 3, 20),
-(4, 1, 15),
-(4, 3, 30),
-(5, 1, 0),
-(5, 3, 0),
-(6, 2, 100),
-(6, 23, 10),
-(7, 23, 50),
-(7, 24, 100),
-(7, 25, 10),
-(8, 23, 20),
-(8, 24, 30),
-(8, 25, 40),
-(8, 26, 90);
+(101, 1, 15),
+(101, 2, 10),
+(102, 1, 30),
+(102, 30, 50),
+(103, 2, 45),
+(103, 30, 42);
+
+--
+-- Triggers `match_plays`
+--
+DELIMITER $$
+CREATE TRIGGER `update_total_score_after_insert` AFTER INSERT ON `match_plays` FOR EACH ROW BEGIN
+    -- Update the participates table by summing all match scores for this team in this tournament
+    UPDATE participates P
+    SET P.score = (
+        SELECT SUM(MP.match_score)
+        FROM match_plays MP
+        JOIN matches M ON MP.match_id = M.match_id
+        WHERE MP.team_id = NEW.team_id 
+          AND M.tournament_id = P.tournament_id
+    )
+    WHERE P.team_id = NEW.team_id;
+END
+$$
+DELIMITER ;
 
 -- --------------------------------------------------------
 
@@ -150,15 +155,8 @@ CREATE TABLE `participates` (
 
 INSERT INTO `participates` (`tournament_id`, `team_id`, `registration_status`, `score`) VALUES
 (1, 1, 'Approved', 45),
-(1, 3, 'Approved', 60),
-(2, 2, 'Approved', 100),
-(2, 23, 'Approved', 10),
-(5, 23, 'Approved', 70),
-(5, 24, 'Approved', 130),
-(5, 25, 'Approved', 50),
-(5, 26, 'Approved', 90),
-(6, 28, 'Approved', 0),
-(9, 29, 'Approved', 0);
+(2, 2, 'Approved', 45),
+(2, 30, 'Approved', 42);
 
 -- --------------------------------------------------------
 
@@ -182,17 +180,9 @@ CREATE TABLE `player` (
 --
 
 INSERT INTO `player` (`player_id`, `gamer_tag`, `player_name`, `email`, `password_hash`, `country`, `age`, `contact_number`) VALUES
-(1, 'GK_Pro', 'Ganesh Karthik', 'gk@iiitj.ac.in', 'gk@123', 'India', 20, NULL),
-(2, 'Mortal', 'Naman Mathur', 'mortal@soul.com', 'nm@123', 'India', 24, NULL),
-(3, 'ScoutOP', 'Tanmay Singh', 'scout@tx.com', 'ts@123', 'India', 25, NULL),
-(4, 'TenZ', 'Tyson Ngo', 'tenz@sentinels.com', 'tn@123', 'Canada', 22, NULL),
-(5, 'S1mple', 'Oleksandr Kostyliev', 's1mple@navi.com', 'ok@123', 'Ukraine', 26, NULL),
-(26, 'daddy123', 'Naman Reddy', 'naman2007@gmail.com', 'nm@123', 'India', 18, '9550534020'),
-(27, 'rohith_11', 'rohith', 'rohith@gmail.com', 'rk@123', 'India', 19, ''),
-(28, 'begam', 'maroof', 'maroof@gmail.com', '12345', 'India', 20, '9550534021'),
-(30, 'trojan', 'pankaj', 'pkj@kdjkdjj', 'wer', '', 0, ''),
-(31, 'BGC', 'B. GURU CHARAN', 'GC@AS', '1234556', 'India', 18, '9704203739'),
-(32, 'jiraya', 'jiraya', 'gk@gmail.com', '$2y$10$v4jkBiDcuz8WA', 'India', 20, '');
+(1, 'GK_Pro', 'Ganesh Karthik', 'gk@iiitj.ac.in', 'gk@123', NULL, 20, NULL),
+(2, 'Slayer_24', 'Rahul Sharma', 'rahul@gmail.com', 'sl@123', NULL, 19, NULL),
+(3, 'Minge_Lord', 'Varun K', 'varun@gmail.com', 'ml@123', NULL, 15, NULL);
 
 -- --------------------------------------------------------
 
@@ -212,16 +202,9 @@ CREATE TABLE `team` (
 --
 
 INSERT INTO `team` (`team_id`, `team_name`, `team_captain_id`, `creation_date`) VALUES
-(1, 'Team Soul', 2, '2025-11-30'),
-(2, 'Sentinels', 4, '2025-11-30'),
-(3, 'NaVi', 5, '2025-11-30'),
-(23, 'rumbling', 1, '2025-12-01'),
-(24, 'hello world', 1, '2025-12-01'),
-(25, 'lets go', 27, '2025-12-01'),
-(26, 'clash', 28, '2025-12-01'),
-(27, 'mingers', 1, '2025-12-01'),
-(28, 'pkj', 28, '2025-12-01'),
-(29, 'gg', 1, '2025-12-25');
+(1, 'Team Soul', 1, '2025-11-30'),
+(2, 'Sentinels', 2, '2025-11-30'),
+(30, 'minge', 3, '2025-12-25');
 
 -- --------------------------------------------------------
 
@@ -240,27 +223,9 @@ CREATE TABLE `team_members` (
 --
 
 INSERT INTO `team_members` (`team_id`, `player_id`, `join_date`) VALUES
-(1, 1, '2025-11-30'),
-(1, 2, '2025-11-30'),
-(1, 3, '2025-11-30'),
-(2, 4, '2025-11-30'),
-(3, 5, '2025-11-30'),
-(23, 1, '2025-12-01'),
-(23, 2, '2025-12-01'),
-(23, 4, '2025-12-01'),
-(24, 1, '2025-12-01'),
-(24, 2, '2025-12-01'),
-(24, 26, '2025-12-01'),
-(25, 2, '2025-12-01'),
-(25, 26, '2025-12-01'),
-(25, 27, '2025-12-01'),
-(26, 2, '2025-12-01'),
-(26, 26, '2025-12-01'),
-(26, 28, '2025-12-01'),
-(28, 28, '2025-12-01'),
-(29, 1, '2025-12-25'),
-(29, 2, '2025-12-25'),
-(29, 26, '2025-12-25');
+(1, 1, '2025-12-25'),
+(2, 2, '2025-12-25'),
+(30, 3, '2025-12-25');
 
 -- --------------------------------------------------------
 
@@ -283,12 +248,9 @@ CREATE TABLE `tournament` (
 --
 
 INSERT INTO `tournament` (`tournament_id`, `tournament_name`, `game_id`, `organizer_id`, `start_date`, `end_date`, `prize_pool`) VALUES
-(1, 'BGMI Pro Series', 2, 1, '2023-11-01 10:00:00', '2023-12-30 10:00:00', 50000.00),
-(2, 'Valorant Champions', 1, 2, '2024-05-01 10:00:00', '2024-05-20 10:00:00', 100000.00),
-(5, 'CS', 3, 2, '2025-11-29 02:33:00', '2025-12-25 02:33:00', 50000.00),
-(6, 'PUBG all star', 2, 2, '2025-12-04 11:05:00', '2025-12-31 11:05:00', 100000.00),
-(8, 'BGC', 2, 2, '2025-12-08 20:48:00', '2025-12-20 20:48:00', 1000000.00),
-(9, 'bgmi', 2, 2, '2025-12-30 19:48:00', '2026-01-10 19:48:00', 100000.00);
+(1, 'Winter Invitational', 1, 1, '2025-11-01 10:00:00', '2025-11-15 22:00:00', 50000.00),
+(2, 'BGMI Pro Series', 2, 2, '2025-12-20 09:00:00', '2026-01-10 23:59:59', 100000.00),
+(3, 'CS2 Masters', 3, 1, '2025-10-15 12:00:00', '2025-10-30 20:00:00', 75000.00);
 
 --
 -- Indexes for dumped tables
@@ -372,7 +334,7 @@ ALTER TABLE `game`
 -- AUTO_INCREMENT for table `matches`
 --
 ALTER TABLE `matches`
-  MODIFY `match_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
+  MODIFY `match_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=105;
 
 --
 -- AUTO_INCREMENT for table `organizer`
@@ -390,7 +352,7 @@ ALTER TABLE `player`
 -- AUTO_INCREMENT for table `team`
 --
 ALTER TABLE `team`
-  MODIFY `team_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=30;
+  MODIFY `team_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=31;
 
 --
 -- AUTO_INCREMENT for table `tournament`

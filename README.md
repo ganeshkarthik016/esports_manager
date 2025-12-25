@@ -16,3 +16,23 @@ A web application built using HTML, CSS, PHP, and MySQL.
 - CSS
 - PHP
 - MySQL
+
+## Screenshots
+
+### Home Page
+![Home](screenshots/home.png)
+
+### User Login
+![User Login](screenshots/user_login.png)
+
+### User Dashboard
+![Dashboard](screenshots/user_dashboard.png)
+
+### Organizer Dashboard
+![Organizer Dashboard](screenshots/org_dashboard.png)
+
+### Create Tournament
+![Tournaments](screenshots/tournament.png)
+
+### Tournament View
+![Tournament View](screenshots/tournament_view.png)
